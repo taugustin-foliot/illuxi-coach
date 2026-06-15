@@ -34,7 +34,7 @@
   @keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(124,106,247,0.4)} 50%{box-shadow:0 0 0 20px rgba(124,106,247,0)} }
   #voice-status { font-size: 18px; color: #444; font-weight: 500; }
   #voice-transcript { background: white; border-radius: 12px; padding: 16px 20px; max-width: 600px; width: 90%; font-size: 15px; line-height: 1.6; color: #333; box-shadow: 0 1px 3px rgba(0,0,0,0.1); min-height: 80px; white-space: pre-wrap; }
-  .cfg-box { background: #e8f4e8; border: 1px solid #4caf50; border-radius: 8px; padding: 16px; max-width: 640px; width: 90%; font-size: 14px; color: #1b5e20; }
+  .cfg-box { background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; padding: 16px; max-width: 640px; width: 90%; font-size: 14px; color: #664d03; }
   .cfg-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
   .cfg-row input { flex: 1; min-width: 180px; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
   .cfg-btn { padding: 8px 20px; background: #7c6af7; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
@@ -60,12 +60,12 @@
 </div>
 <div class="panel" id="voice-panel">
   <div class="cfg-box">
-    <strong>Configuration — Managed Identity active</strong>
+    <strong>Configuration Foundry</strong>
     <div class="cfg-row">
-      <input id="cfg-endpoint" placeholder="https://taugustin-1448-resource.services.ai.azure.com/api/projects/taugustin-1448" />
+      <input id="cfg-endpoint" placeholder="https://taugustin-1448-resource.services.ai.azure.com" />
     </div>
     <div class="cfg-row">
-      <input id="cfg-agentname" placeholder="Nom de l'agent : Illuxi-Coach" />
+      <input id="cfg-apikey" placeholder="Clé API" type="password" />
       <button class="cfg-btn" onclick="saveConfig()">Sauvegarder</button>
     </div>
     <div id="cfg-status" style="margin-top:8px;font-size:13px"></div>
@@ -77,9 +77,10 @@
   <div id="voice-transcript">La transcription apparaîtra ici...</div>
 </div>
 <script>
-const SK = 'illuxi_cfg_v6';
+const SK = 'illuxi_cfg_v7';
 let cfg = {};
 try { cfg = JSON.parse(localStorage.getItem(SK)||'{}'); } catch(e){}
+let history = [];
 let isListening = false, recognition = null;
 
 function switchTab(t) {
@@ -89,15 +90,14 @@ function switchTab(t) {
 }
 
 function saveConfig() {
-  cfg.endpoint  = document.getElementById('cfg-endpoint').value.trim().replace(/\/$/,'');
-  cfg.agentname = document.getElementById('cfg-agentname').value.trim();
+  cfg.endpoint = document.getElementById('cfg-endpoint').value.trim().replace(/\/$/,'');
+  cfg.apikey   = document.getElementById('cfg-apikey').value.trim();
   localStorage.setItem(SK, JSON.stringify(cfg));
   document.getElementById('cfg-status').textContent = 'Sauvegardé — testez le chat !';
   document.getElementById('cfg-status').style.color = '#155724';
 }
 
-if (cfg.endpoint)   document.getElementById('cfg-endpoint').value  = cfg.endpoint;
-if (cfg.agentname)  document.getElementById('cfg-agentname').value = cfg.agentname;
+if (cfg.endpoint) document.getElementById('cfg-endpoint').value = cfg.endpoint;
 
 function addMsg(text, cls) {
   const d = document.createElement('div');
@@ -107,16 +107,17 @@ function addMsg(text, cls) {
 }
 
 async function callAgent(message) {
-  if (!cfg.endpoint || !cfg.agentname)
+  if (!cfg.endpoint || !cfg.apikey)
     throw new Error('Configuration manquante — onglet Voix');
 
   const r = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      endpoint:  cfg.endpoint,
-      agentname: cfg.agentname,
-      message:   message
+      endpoint: cfg.endpoint,
+      apikey:   cfg.apikey,
+      message:  message,
+      history:  history
     })
   });
 
@@ -125,21 +126,11 @@ async function callAgent(message) {
   try { data = JSON.parse(text); } catch(e) {
     throw new Error('Réponse invalide: ' + text.substring(0, 300));
   }
-  if (!r.ok) throw new Error('HTTP ' + r.status + ': ' + (data.error?.message || data.message || JSON.stringify(data).substring(0, 300)));
+  if (!r.ok) throw new Error('HTTP ' + r.status + ': ' + (data.error?.message || JSON.stringify(data).substring(0, 300)));
 
-  if (data.output_text) return data.output_text;
-  if (data.output && Array.isArray(data.output)) {
-    const texts = [];
-    for (const item of data.output) {
-      if (item.type === 'message' && Array.isArray(item.content)) {
-        for (const c of item.content) {
-          if (c.type === 'output_text' || c.type === 'text') texts.push(c.text || c.output_text || '');
-        }
-      }
-    }
-    if (texts.length) return texts.join('\n');
-  }
-  throw new Error('Format inattendu: ' + JSON.stringify(data).substring(0, 300));
+  const reply = data.choices?.[0]?.message?.content;
+  if (!reply) throw new Error('Contenu vide: ' + JSON.stringify(data).substring(0, 300));
+  return reply;
 }
 
 async function sendMessage() {
@@ -148,8 +139,13 @@ async function sendMessage() {
   inp.value = ''; document.getElementById('send-btn').disabled = true;
   addMsg(text, 'user');
   const t = addMsg('Illuxi-Coach réfléchit…', 'agent thinking');
-  try { const r = await callAgent(text); t.remove(); addMsg(r, 'agent'); }
-  catch(e) { t.remove(); addMsg('Erreur : ' + e.message, 'error'); }
+  try {
+    const reply = await callAgent(text);
+    t.remove(); addMsg(reply, 'agent');
+    history.push({ role: 'user', content: text });
+    history.push({ role: 'assistant', content: reply });
+    if (history.length > 20) history = history.slice(-20);
+  } catch(e) { t.remove(); addMsg('Erreur : ' + e.message, 'error'); }
   document.getElementById('send-btn').disabled = false;
 }
 
@@ -164,6 +160,8 @@ function startListening() {
     setOrb('speaking'); document.getElementById('voice-status').textContent = 'Illuxi-Coach répond…';
     try {
       const r = await callAgent(tx);
+      history.push({ role: 'user', content: tx });
+      history.push({ role: 'assistant', content: r });
       document.getElementById('voice-transcript').textContent = 'Vous : ' + tx + '\n\nIlluxi-Coach : ' + r;
       speak(r);
     } catch(e) { document.getElementById('voice-status').textContent = 'Erreur : ' + e.message; setOrb(''); }
