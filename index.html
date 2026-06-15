@@ -181,15 +181,25 @@ function stopListening() {
 function setOrb(s) { document.getElementById('voice-orb').className = 'voice-orb' + (s?' '+s:''); }
 function stopSpeech() {
   speechSynthesis.cancel();
-  setOrb("");
-  document.getElementById("stop-btn").style.display = "none";
-  document.getElementById("voice-status").textContent = "Cliquez pour parler";
+  setOrb('');
+  document.getElementById('stop-btn').style.display = 'none';
+  document.getElementById('voice-status').textContent = 'Cliquez pour parler';
 }
 function speak(text) {
-  const u = new SpeechSynthesisUtterance(text); u.lang = 'fr-CA';
-  const v = speechSynthesis.getVoices().find(v=>v.lang.startsWith('fr')); if(v) u.voice=v;
-  u.onend = () => { setOrb(''); document.getElementById('voice-status').textContent = 'Cliquez pour parler'; };
-  speechSynthesis.speak(u);
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'fr-CA'; u.rate = 0.95;
+  const trySpeak = () => {
+    const voices = speechSynthesis.getVoices();
+    const v = voices.find(v=>v.lang.startsWith('fr-CA')) || voices.find(v=>v.lang.startsWith('fr'));
+    if (v) u.voice = v;
+    document.getElementById('stop-btn').style.display = 'block';
+    document.getElementById('voice-status').textContent = 'Illuxi-Coach parle…';
+    u.onend = () => { setOrb(''); document.getElementById('stop-btn').style.display = 'none'; document.getElementById('voice-status').textContent = 'Cliquez pour parler'; };
+    u.onerror = () => { setOrb(''); document.getElementById('stop-btn').style.display = 'none'; document.getElementById('voice-status').textContent = 'Cliquez pour parler'; };
+    speechSynthesis.speak(u);
+  };
+  if (speechSynthesis.getVoices().length === 0) { speechSynthesis.onvoiceschanged = trySpeak; } else { trySpeak(); }
 }
 </script>
 </body>
