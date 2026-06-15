@@ -62,11 +62,11 @@
   <div class="cfg-box">
     <strong>Configuration Foundry</strong>
     <div class="cfg-row">
-      <input id="cfg-endpoint" placeholder="https://taugustin-1448-resource.services.ai.azure.com" />
+      <input id="cfg-endpoint" placeholder="https://taugustin-1448-resource.services.ai.azure.com/api/projects/taugustin-1448" />
     </div>
     <div class="cfg-row">
       <input id="cfg-apikey" placeholder="Clé API" type="password" />
-      <input id="cfg-agentid" placeholder="Nom de l'agent : Illuxi-Coach" />
+      <input id="cfg-agentname" placeholder="Nom de l'agent : Illuxi-Coach" style="flex:1" />
       <button class="cfg-btn" onclick="saveConfig()">Sauvegarder</button>
     </div>
     <div id="cfg-status" style="margin-top:8px;font-size:13px"></div>
@@ -78,30 +78,28 @@
   <div id="voice-transcript">La transcription apparaîtra ici...</div>
 </div>
 <script>
-const SK = 'illuxi_cfg_v4';
+const SK = 'illuxi_cfg_v5';
 let cfg = {};
 try { cfg = JSON.parse(localStorage.getItem(SK)||'{}'); } catch(e){}
-let threadId = null, agentId = null, isListening = false, recognition = null;
-const PROXY = '/api/chat';
-const VER = '2025-05-15-preview';
+let isListening = false, recognition = null;
 
 function switchTab(t) {
   document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',(t==='chat'?0:1)===i));
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   document.getElementById(t+'-panel').classList.add('active');
 }
+
 function saveConfig() {
-  cfg.endpoint = document.getElementById('cfg-endpoint').value.trim().replace(/\/$/,'');
-  cfg.apikey   = document.getElementById('cfg-apikey').value.trim();
-  cfg.agentname = document.getElementById('cfg-agentid').value.trim();
-  cfg.agentid  = null; // reset pour forcer la résolution
-  threadId = null; agentId = null;
+  cfg.endpoint  = document.getElementById('cfg-endpoint').value.trim().replace(/\/$/,'');
+  cfg.apikey    = document.getElementById('cfg-apikey').value.trim();
+  cfg.agentname = document.getElementById('cfg-agentname').value.trim();
   localStorage.setItem(SK, JSON.stringify(cfg));
   document.getElementById('cfg-status').textContent = 'Sauvegardé — testez le chat pour valider.';
   document.getElementById('cfg-status').style.color = '#155724';
 }
-if (cfg.endpoint)   document.getElementById('cfg-endpoint').value = cfg.endpoint;
-if (cfg.agentname)  document.getElementById('cfg-agentid').value  = cfg.agentname;
+
+if (cfg.endpoint)   document.getElementById('cfg-endpoint').value  = cfg.endpoint;
+if (cfg.agentname)  document.getElementById('cfg-agentname').value = cfg.agentname;
 
 function addMsg(text, cls) {
   const d = document.createElement('div');
@@ -110,34 +108,41 @@ function addMsg(text, cls) {
   b.appendChild(d); b.scrollTop = 99999; return d;
 }
 
-async function proxy(method, path, body) {
-  const r = await fetch(PROXY, {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ endpoint:cfg.endpoint, apikey:cfg.apikey, method, path, body: body||null })
-  });
-  const text = await r.text();
-  let parsed;
-  try { parsed = JSON.parse(text); } catch(e) { throw new Error('Réponse invalide: '+text.substring(0,200)); }
-  if (!r.ok) throw new Error('HTTP '+r.status+': '+(parsed.error?.message||parsed.message||text.substring(0,200)));
-  return parsed;
-}
+async function callAgent(message) {
+  if (!cfg.endpoint || !cfg.apikey || !cfg.agentname)
+    throw new Error('Configuration manquante — onglet Voix');
 
-async function resolveAgent() {
-  if (agentId) return agentId;
-  // Essai 1 : API Foundry agents
-  try {
-    const d = await proxy('GET', `/agents?api-version=${VER}`);
-    const found = (d.value||d.data||[]).find(a => a.name === cfg.agentname || a.id === cfg.agentname);
-    if (found) { agentId = found.id; return agentId; }
-  } catch(e) {}
-  // Essai 2 : API OpenAI assistants
-  try {
-    const d = await proxy('GET', `/openai/assistants?api-version=${VER}&limit=20`);
-    const found = (d.data||[]).find(a => a.name === cfg.agentname || a.id === cfg.agentname);
-    if (found) { agentId = found.id; return agentId; }
-    throw new Error('Agent "'+cfg.agentname+'" non trouvé. Disponibles: '+(d.data||[]).map(a=>a.name+' ('+a.id+')').join(', '));
-  } catch(e) { throw e; }
+  const r = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      endpoint:     cfg.endpoint,
+      apikey:       cfg.apikey,
+      agentname:    cfg.agentname,
+      agentversion: '0',
+      message:      message
+    })
+  });
+
+  const text = await r.text();
+  let data;
+  try { data = JSON.parse(text); } catch(e) { throw new Error('Réponse invalide: ' + text.substring(0,300)); }
+  if (!r.ok) throw new Error('HTTP ' + r.status + ': ' + (data.error?.message || data.message || JSON.stringify(data).substring(0,300)));
+
+  // Extraire le texte de la réponse Foundry
+  if (data.output_text) return data.output_text;
+  if (data.output && Array.isArray(data.output)) {
+    const texts = [];
+    for (const item of data.output) {
+      if (item.type === 'message' && Array.isArray(item.content)) {
+        for (const c of item.content) {
+          if (c.type === 'output_text' || c.type === 'text') texts.push(c.text || c.output_text || '');
+        }
+      }
+    }
+    if (texts.length) return texts.join('\n');
+  }
+  throw new Error('Format de réponse inattendu: ' + JSON.stringify(data).substring(0,300));
 }
 
 async function sendMessage() {
@@ -147,64 +152,39 @@ async function sendMessage() {
   addMsg(text, 'user');
   const t = addMsg('Illuxi-Coach réfléchit…', 'agent thinking');
   try { const r = await callAgent(text); t.remove(); addMsg(r, 'agent'); }
-  catch(e) { t.remove(); addMsg('Erreur : '+e.message, 'error'); }
+  catch(e) { t.remove(); addMsg('Erreur : ' + e.message, 'error'); }
   document.getElementById('send-btn').disabled = false;
-}
-
-async function callAgent(msg) {
-  if (!cfg.endpoint||!cfg.apikey||!cfg.agentname)
-    throw new Error('Configuration manquante — onglet Voix');
-
-  const aid = await resolveAgent();
-
-  if (!threadId) {
-    const d = await proxy('POST', `/openai/threads?api-version=${VER}`, {});
-    threadId = d.id;
-  }
-
-  await proxy('POST', `/openai/threads/${threadId}/messages?api-version=${VER}`, {role:'user', content:msg});
-
-  let run = await proxy('POST', `/openai/threads/${threadId}/runs?api-version=${VER}`, {assistant_id: aid});
-
-  for (let i = 0; i < 60 && (run.status==='queued'||run.status==='in_progress'); i++) {
-    await new Promise(r => setTimeout(r, 2000));
-    run = await proxy('GET', `/openai/threads/${threadId}/runs/${run.id}?api-version=${VER}`);
-  }
-  if (run.status !== 'completed')
-    throw new Error('Statut: '+run.status+(run.last_error?' — '+run.last_error.message:''));
-
-  const data = await proxy('GET', `/openai/threads/${threadId}/messages?api-version=${VER}&limit=1&order=desc`);
-  const content = data.data?.[0]?.content;
-  if (Array.isArray(content)) return content.filter(c=>c.type==='text').map(c=>c.text.value).join('\n');
-  throw new Error('Contenu vide');
 }
 
 function toggleVoice() { if(isListening) stopListening(); else startListening(); }
 function startListening() {
-  const SR = window.SpeechRecognition||window.webkitSpeechRecognition;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { document.getElementById('voice-status').textContent='Utilisez Chrome ou Edge'; return; }
   recognition = new SR(); recognition.lang='fr-CA'; recognition.interimResults=false;
   recognition.onresult = async(e) => {
     const tx = e.results[0][0].transcript;
-    document.getElementById('voice-transcript').textContent = 'Vous : '+tx;
-    setOrb('speaking'); document.getElementById('voice-status').textContent='Illuxi-Coach répond…';
+    document.getElementById('voice-transcript').textContent = 'Vous : ' + tx;
+    setOrb('speaking'); document.getElementById('voice-status').textContent = 'Illuxi-Coach répond…';
     try {
       const r = await callAgent(tx);
-      document.getElementById('voice-transcript').textContent = 'Vous : '+tx+'\n\nIlluxi-Coach : '+r;
+      document.getElementById('voice-transcript').textContent = 'Vous : ' + tx + '\n\nIlluxi-Coach : ' + r;
       speak(r);
-    } catch(e) { document.getElementById('voice-status').textContent='Erreur : '+e.message; setOrb(''); }
+    } catch(e) { document.getElementById('voice-status').textContent = 'Erreur : ' + e.message; setOrb(''); }
   };
-  recognition.onerror = () => { setOrb(''); document.getElementById('voice-status').textContent='Erreur micro'; };
-  recognition.onend = () => { isListening=false; };
-  recognition.start(); isListening=true; setOrb('listening');
-  document.getElementById('voice-status').textContent='Écoutez… parlez maintenant';
+  recognition.onerror = () => { setOrb(''); document.getElementById('voice-status').textContent = 'Erreur micro'; };
+  recognition.onend = () => { isListening = false; };
+  recognition.start(); isListening = true; setOrb('listening');
+  document.getElementById('voice-status').textContent = 'Écoutez… parlez maintenant';
 }
-function stopListening() { if(recognition) recognition.stop(); isListening=false; setOrb(''); document.getElementById('voice-status').textContent='Cliquez pour parler'; }
-function setOrb(s) { document.getElementById('voice-orb').className='voice-orb'+(s?' '+s:''); }
+function stopListening() {
+  if(recognition) recognition.stop(); isListening=false; setOrb('');
+  document.getElementById('voice-status').textContent = 'Cliquez pour parler';
+}
+function setOrb(s) { document.getElementById('voice-orb').className = 'voice-orb' + (s?' '+s:''); }
 function speak(text) {
-  const u = new SpeechSynthesisUtterance(text); u.lang='fr-CA';
+  const u = new SpeechSynthesisUtterance(text); u.lang = 'fr-CA';
   const v = speechSynthesis.getVoices().find(v=>v.lang.startsWith('fr')); if(v) u.voice=v;
-  u.onend = () => { setOrb(''); document.getElementById('voice-status').textContent='Cliquez pour parler'; };
+  u.onend = () => { setOrb(''); document.getElementById('voice-status').textContent = 'Cliquez pour parler'; };
   speechSynthesis.speak(u);
 }
 </script>
