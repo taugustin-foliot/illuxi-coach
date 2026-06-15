@@ -35,7 +35,9 @@
   #voice-status { font-size: 18px; color: #444; font-weight: 500; }
   #stop-btn { display: none; padding: 12px 28px; background: #e53e3e; color: white; border: none; border-radius: 24px; font-size: 15px; font-weight: 600; cursor: pointer; }
   #stop-btn:hover { background: #c53030; }
-  #voice-transcript { background: white; border-radius: 12px; padding: 16px 20px; max-width: 600px; width: 90%; font-size: 15px; line-height: 1.6; color: #333; box-shadow: 0 1px 3px rgba(0,0,0,0.1); min-height: 80px; white-space: pre-wrap; }
+  .transcript-toggle { background: none; border: 1px solid #ccc; border-radius: 20px; padding: 8px 18px; font-size: 14px; color: #666; cursor: pointer; display: none; }
+  .transcript-toggle:hover { background: #f0f0f0; }
+  #voice-transcript { background: white; border-radius: 12px; padding: 16px 20px; max-width: 600px; width: 90%; font-size: 15px; line-height: 1.6; color: #333; box-shadow: 0 1px 3px rgba(0,0,0,0.1); white-space: pre-wrap; display: none; }
 </style>
 </head>
 <body>
@@ -62,12 +64,20 @@
   </div>
   <div id="voice-status">Cliquez pour parler</div>
   <button id="stop-btn" onclick="stopSpeech()">Arrêter la réponse</button>
-  <div id="voice-transcript">La transcription apparaîtra ici...</div>
+  <button class="transcript-toggle" id="transcript-toggle" onclick="toggleTranscript()">Afficher la transcription</button>
+  <div id="voice-transcript"></div>
 </div>
 <script>
 let history = [];
 let isListening = false, recognition = null;
 
+function toggleTranscript() {
+  const div = document.getElementById('voice-transcript');
+  const btn = document.getElementById('transcript-toggle');
+  const visible = div.style.display === 'block';
+  div.style.display = visible ? 'none' : 'block';
+  btn.textContent = visible ? 'Afficher la transcription' : 'Masquer la transcription';
+}
 function switchTab(t) {
   document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',(t==='chat'?0:1)===i));
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
@@ -125,6 +135,7 @@ function startListening() {
       history.push({ role: 'user', content: tx });
       history.push({ role: 'assistant', content: r });
       document.getElementById('voice-transcript').textContent = 'Vous : ' + tx + '\n\nIlluxi-Coach : ' + r;
+      document.getElementById('transcript-toggle').style.display = 'block';
       speak(r);
     } catch(e) { document.getElementById('voice-status').textContent = 'Erreur : ' + e.message; setOrb(''); }
   };
