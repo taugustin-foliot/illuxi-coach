@@ -35,10 +35,9 @@
   #voice-status { font-size: 18px; color: #444; font-weight: 500; }
   #voice-transcript { background: white; border-radius: 12px; padding: 16px 20px; max-width: 600px; width: 90%; font-size: 15px; line-height: 1.6; color: #333; box-shadow: 0 1px 3px rgba(0,0,0,0.1); min-height: 80px; white-space: pre-wrap; }
   .cfg-box { background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; padding: 16px; max-width: 640px; width: 90%; font-size: 14px; color: #664d03; }
-  .cfg-box input { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; margin-top: 6px; }
   .cfg-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-  .cfg-row input { flex: 1; min-width: 180px; }
-  .cfg-btn { padding: 8px 20px; background: #7c6af7; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; white-space: nowrap; }
+  .cfg-row input { flex: 1; min-width: 180px; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
+  .cfg-btn { padding: 8px 20px; background: #7c6af7; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
 </style>
 </head>
 <body>
@@ -79,11 +78,12 @@
   <div id="voice-transcript">La transcription apparaîtra ici...</div>
 </div>
 <script>
-const SK = 'illuxi_cfg_v3';
+const SK = 'illuxi_cfg_v4';
 let cfg = {};
 try { cfg = JSON.parse(localStorage.getItem(SK)||'{}'); } catch(e){}
-let threadId = null, isListening = false, recognition = null;
+let threadId = null, agentId = null, isListening = false, recognition = null;
 const PROXY = '/api/chat';
+const VER = '2025-05-15-preview';
 
 function switchTab(t) {
   document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',(t==='chat'?0:1)===i));
@@ -93,103 +93,118 @@ function switchTab(t) {
 function saveConfig() {
   cfg.endpoint = document.getElementById('cfg-endpoint').value.trim().replace(/\/$/,'');
   cfg.apikey   = document.getElementById('cfg-apikey').value.trim();
-  cfg.agentid  = document.getElementById('cfg-agentid').value.trim();
+  cfg.agentname = document.getElementById('cfg-agentid').value.trim();
+  cfg.agentid  = null; // reset pour forcer la résolution
+  threadId = null; agentId = null;
   localStorage.setItem(SK, JSON.stringify(cfg));
-  document.getElementById('cfg-status').textContent='Sauvegardé — testez le chat pour valider.';
-  document.getElementById('cfg-status').style.color='#155724';
+  document.getElementById('cfg-status').textContent = 'Sauvegardé — testez le chat pour valider.';
+  document.getElementById('cfg-status').style.color = '#155724';
 }
-if (cfg.endpoint) document.getElementById('cfg-endpoint').value=cfg.endpoint;
-if (cfg.agentid)  document.getElementById('cfg-agentid').value=cfg.agentid;
+if (cfg.endpoint)   document.getElementById('cfg-endpoint').value = cfg.endpoint;
+if (cfg.agentname)  document.getElementById('cfg-agentid').value  = cfg.agentname;
 
-function addMsg(text,cls) {
-  const d=document.createElement('div');
-  d.className='msg '+cls; d.textContent=text;
-  const b=document.getElementById('chat-messages');
-  b.appendChild(d); b.scrollTop=99999; return d;
+function addMsg(text, cls) {
+  const d = document.createElement('div');
+  d.className = 'msg '+cls; d.textContent = text;
+  const b = document.getElementById('chat-messages');
+  b.appendChild(d); b.scrollTop = 99999; return d;
 }
 
 async function proxy(method, path, body) {
   const r = await fetch(PROXY, {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ endpoint:cfg.endpoint, apikey:cfg.apikey, method, path, body })
+    body: JSON.stringify({ endpoint:cfg.endpoint, apikey:cfg.apikey, method, path, body: body||null })
   });
   const text = await r.text();
-  if (!r.ok) throw new Error('HTTP '+r.status+': '+text);
-  return JSON.parse(text);
+  let parsed;
+  try { parsed = JSON.parse(text); } catch(e) { throw new Error('Réponse invalide: '+text.substring(0,200)); }
+  if (!r.ok) throw new Error('HTTP '+r.status+': '+(parsed.error?.message||parsed.message||text.substring(0,200)));
+  return parsed;
+}
+
+async function resolveAgent() {
+  if (agentId) return agentId;
+  // Essai 1 : API Foundry agents
+  try {
+    const d = await proxy('GET', `/agents?api-version=${VER}`);
+    const found = (d.value||d.data||[]).find(a => a.name === cfg.agentname || a.id === cfg.agentname);
+    if (found) { agentId = found.id; return agentId; }
+  } catch(e) {}
+  // Essai 2 : API OpenAI assistants
+  try {
+    const d = await proxy('GET', `/openai/assistants?api-version=${VER}&limit=20`);
+    const found = (d.data||[]).find(a => a.name === cfg.agentname || a.id === cfg.agentname);
+    if (found) { agentId = found.id; return agentId; }
+    throw new Error('Agent "'+cfg.agentname+'" non trouvé. Disponibles: '+(d.data||[]).map(a=>a.name+' ('+a.id+')').join(', '));
+  } catch(e) { throw e; }
 }
 
 async function sendMessage() {
-  const inp=document.getElementById('chat-input');
-  const text=inp.value.trim(); if(!text) return;
-  inp.value=''; document.getElementById('send-btn').disabled=true;
-  addMsg(text,'user');
-  const t=addMsg('Illuxi-Coach réfléchit…','agent thinking');
-  try { const r=await callAgent(text); t.remove(); addMsg(r,'agent'); }
-  catch(e) { t.remove(); addMsg('Erreur : '+e.message,'error'); }
-  document.getElementById('send-btn').disabled=false;
+  const inp = document.getElementById('chat-input');
+  const text = inp.value.trim(); if (!text) return;
+  inp.value = ''; document.getElementById('send-btn').disabled = true;
+  addMsg(text, 'user');
+  const t = addMsg('Illuxi-Coach réfléchit…', 'agent thinking');
+  try { const r = await callAgent(text); t.remove(); addMsg(r, 'agent'); }
+  catch(e) { t.remove(); addMsg('Erreur : '+e.message, 'error'); }
+  document.getElementById('send-btn').disabled = false;
 }
 
 async function callAgent(msg) {
-  if (!cfg.endpoint||!cfg.apikey||!cfg.agentid)
+  if (!cfg.endpoint||!cfg.apikey||!cfg.agentname)
     throw new Error('Configuration manquante — onglet Voix');
-  const ver='2025-05-15-preview';
 
-  let agentId=cfg.agentid;
-  if (!agentId.startsWith('asst_')) {
-    const d=await proxy('GET',`/openai/assistants?api-version=${ver}&limit=20`);
-    const found=(d.data||[]).find(a=>a.name===agentId);
-    if (!found) throw new Error('Agent "'+agentId+'" non trouvé. Disponibles: '+(d.data||[]).map(a=>a.name).join(', '));
-    agentId=found.id; cfg.agentid=agentId; localStorage.setItem(SK,JSON.stringify(cfg));
-  }
+  const aid = await resolveAgent();
 
   if (!threadId) {
-    const d=await proxy('POST',`/openai/threads?api-version=${ver}`,{});
-    threadId=d.id;
+    const d = await proxy('POST', `/openai/threads?api-version=${VER}`, {});
+    threadId = d.id;
   }
 
-  await proxy('POST',`/openai/threads/${threadId}/messages?api-version=${ver}`,{role:'user',content:msg});
+  await proxy('POST', `/openai/threads/${threadId}/messages?api-version=${VER}`, {role:'user', content:msg});
 
-  let run=await proxy('POST',`/openai/threads/${threadId}/runs?api-version=${ver}`,{assistant_id:agentId});
+  let run = await proxy('POST', `/openai/threads/${threadId}/runs?api-version=${VER}`, {assistant_id: aid});
 
-  for (let i=0;i<60&&(run.status==='queued'||run.status==='in_progress');i++) {
-    await new Promise(r=>setTimeout(r,2000));
-    run=await proxy('GET',`/openai/threads/${threadId}/runs/${run.id}?api-version=${ver}`);
+  for (let i = 0; i < 60 && (run.status==='queued'||run.status==='in_progress'); i++) {
+    await new Promise(r => setTimeout(r, 2000));
+    run = await proxy('GET', `/openai/threads/${threadId}/runs/${run.id}?api-version=${VER}`);
   }
-  if (run.status!=='completed') throw new Error('Statut: '+run.status+(run.last_error?' — '+run.last_error.message:''));
+  if (run.status !== 'completed')
+    throw new Error('Statut: '+run.status+(run.last_error?' — '+run.last_error.message:''));
 
-  const data=await proxy('GET',`/openai/threads/${threadId}/messages?api-version=${ver}&limit=1&order=desc`);
-  const content=data.data?.[0]?.content;
+  const data = await proxy('GET', `/openai/threads/${threadId}/messages?api-version=${VER}&limit=1&order=desc`);
+  const content = data.data?.[0]?.content;
   if (Array.isArray(content)) return content.filter(c=>c.type==='text').map(c=>c.text.value).join('\n');
   throw new Error('Contenu vide');
 }
 
 function toggleVoice() { if(isListening) stopListening(); else startListening(); }
 function startListening() {
-  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  const SR = window.SpeechRecognition||window.webkitSpeechRecognition;
   if (!SR) { document.getElementById('voice-status').textContent='Utilisez Chrome ou Edge'; return; }
-  recognition=new SR(); recognition.lang='fr-CA'; recognition.interimResults=false;
-  recognition.onresult=async(e)=>{
-    const tx=e.results[0][0].transcript;
-    document.getElementById('voice-transcript').textContent='Vous : '+tx;
+  recognition = new SR(); recognition.lang='fr-CA'; recognition.interimResults=false;
+  recognition.onresult = async(e) => {
+    const tx = e.results[0][0].transcript;
+    document.getElementById('voice-transcript').textContent = 'Vous : '+tx;
     setOrb('speaking'); document.getElementById('voice-status').textContent='Illuxi-Coach répond…';
     try {
-      const r=await callAgent(tx);
-      document.getElementById('voice-transcript').textContent='Vous : '+tx+'\n\nIlluxi-Coach : '+r;
+      const r = await callAgent(tx);
+      document.getElementById('voice-transcript').textContent = 'Vous : '+tx+'\n\nIlluxi-Coach : '+r;
       speak(r);
     } catch(e) { document.getElementById('voice-status').textContent='Erreur : '+e.message; setOrb(''); }
   };
-  recognition.onerror=()=>{ setOrb(''); document.getElementById('voice-status').textContent='Erreur micro'; };
-  recognition.onend=()=>{ isListening=false; };
+  recognition.onerror = () => { setOrb(''); document.getElementById('voice-status').textContent='Erreur micro'; };
+  recognition.onend = () => { isListening=false; };
   recognition.start(); isListening=true; setOrb('listening');
   document.getElementById('voice-status').textContent='Écoutez… parlez maintenant';
 }
 function stopListening() { if(recognition) recognition.stop(); isListening=false; setOrb(''); document.getElementById('voice-status').textContent='Cliquez pour parler'; }
 function setOrb(s) { document.getElementById('voice-orb').className='voice-orb'+(s?' '+s:''); }
 function speak(text) {
-  const u=new SpeechSynthesisUtterance(text); u.lang='fr-CA';
-  const v=speechSynthesis.getVoices().find(v=>v.lang.startsWith('fr')); if(v) u.voice=v;
-  u.onend=()=>{ setOrb(''); document.getElementById('voice-status').textContent='Cliquez pour parler'; };
+  const u = new SpeechSynthesisUtterance(text); u.lang='fr-CA';
+  const v = speechSynthesis.getVoices().find(v=>v.lang.startsWith('fr')); if(v) u.voice=v;
+  u.onend = () => { setOrb(''); document.getElementById('voice-status').textContent='Cliquez pour parler'; };
   speechSynthesis.speak(u);
 }
 </script>
