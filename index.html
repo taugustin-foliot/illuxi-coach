@@ -26,6 +26,10 @@
   #chat-input:focus { border-color: #7c6af7; }
   #send-btn { background: #7c6af7; color: white; border: none; border-radius: 24px; padding: 12px 24px; font-size: 15px; cursor: pointer; font-weight: 600; }
   #send-btn:disabled { background: #ccc; cursor: not-allowed; }
+  #quiz-btn { background: white; color: #7c6af7; border: 2px solid #7c6af7; border-radius: 24px; padding: 10px 20px; font-size: 14px; font-weight: 600; cursor: pointer; margin: 0 24px 12px; align-self: flex-start; transition: all 0.2s; }
+  #quiz-btn:hover { background: #7c6af7; color: white; }
+  #voice-quiz-btn { padding: 10px 24px; background: white; color: #7c6af7; border: 2px solid #7c6af7; border-radius: 24px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+  #voice-quiz-btn:hover { background: #7c6af7; color: white; }
   #voice-panel { align-items: center; justify-content: center; gap: 24px; background: #f5f5f5; }
   .voice-orb { width: 160px; height: 160px; border-radius: 50%; background: #1a1a2e; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.3s; }
   .voice-orb.listening { background: #7c6af7; animation: pulse 1.5s infinite; }
@@ -53,12 +57,14 @@
   <div id="chat-messages">
     <div class="msg agent">Bonjour ! Je suis Illuxi-Coach, votre mentor pour les formations Illuxi. Comment puis-je vous aider aujourd'hui ?</div>
   </div>
+  <button id="quiz-btn" onclick="startQuiz()">Me tester sur la formation</button>
   <div id="chat-input-area">
     <input id="chat-input" type="text" placeholder="Posez votre question sur la formation..." onkeydown="if(event.key==='Enter')sendMessage()"/>
     <button id="send-btn" onclick="sendMessage()">Envoyer</button>
   </div>
 </div>
 <div class="panel" id="voice-panel">
+  <button id="voice-quiz-btn" onclick="startVoiceQuiz()">Me tester sur la formation</button>
   <div class="voice-orb" id="voice-orb" onclick="toggleVoice()">
     <svg viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3zm-1 3a1 1 0 0 1 2 0v8a1 1 0 0 1-2 0V4zm-5 7a1 1 0 0 1 1 1 5 5 0 0 0 10 0 1 1 0 0 1 2 0 7 7 0 0 1-6 6.92V21h2a1 1 0 0 1 0 2H9a1 1 0 0 1 0-2h2v-2.08A7 7 0 0 1 5 12a1 1 0 0 1 1-1z"/></svg>
   </div>
@@ -71,6 +77,41 @@
 let history = [];
 let isListening = false, recognition = null;
 
+function startQuiz() {
+  const inp = document.getElementById('chat-input');
+  inp.value = '';
+  document.getElementById('send-btn').disabled = true;
+  addMsg('Je veux être testé sur la formation.', 'user');
+  const t = addMsg('Illuxi-Coach prépare une question…', 'agent thinking');
+  fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: 'ILLUXI_QUIZ_START', history })
+  }).then(r => r.json()).then(data => {
+    t.remove();
+    const reply = data.choices?.[0]?.message?.content || 'Erreur';
+    addMsg(reply, 'agent');
+    history.push({ role: 'user', content: 'ILLUXI_QUIZ_START' });
+    history.push({ role: 'assistant', content: reply });
+  }).catch(e => { t.remove(); addMsg('Erreur : ' + e.message, 'error'); })
+  .finally(() => { document.getElementById('send-btn').disabled = false; });
+}
+function startVoiceQuiz() {
+  document.getElementById('voice-status').textContent = 'Illuxi-Coach prépare une question…';
+  setOrb('speaking');
+  fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: 'ILLUXI_QUIZ_START', history })
+  }).then(r => r.json()).then(data => {
+    const reply = data.choices?.[0]?.message?.content || 'Erreur';
+    history.push({ role: 'user', content: 'ILLUXI_QUIZ_START' });
+    history.push({ role: 'assistant', content: reply });
+    document.getElementById('voice-transcript').textContent = 'Illuxi-Coach : ' + reply;
+    document.getElementById('transcript-toggle').style.display = 'block';
+    speak(reply);
+  }).catch(e => { setOrb(''); document.getElementById('voice-status').textContent = 'Erreur : ' + e.message; });
+}
 function toggleTranscript() {
   const div = document.getElementById('voice-transcript');
   const btn = document.getElementById('transcript-toggle');
