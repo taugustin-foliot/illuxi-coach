@@ -42,17 +42,14 @@
 </style>
 </head>
 <body>
-
 <header>
   <svg width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#7c6af7"/><path d="M10 22 Q16 10 22 22" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round"/><circle cx="16" cy="13" r="3" fill="white"/></svg>
   <div><h1>Illuxi-Coach</h1><span>Mentor virtuel des formations</span></div>
 </header>
-
 <div class="tabs">
   <div class="tab active" onclick="switchTab('chat')">Chat</div>
   <div class="tab" onclick="switchTab('voice')">Voix</div>
 </div>
-
 <div class="panel active" id="chat-panel">
   <div id="chat-messages">
     <div class="msg agent">Bonjour ! Je suis Illuxi-Coach, votre mentor pour les formations Illuxi. Comment puis-je vous aider aujourd'hui ?</div>
@@ -62,16 +59,15 @@
     <button id="send-btn" onclick="sendMessage()">Envoyer</button>
   </div>
 </div>
-
 <div class="panel" id="voice-panel">
-  <div class="cfg-box" id="cfg-box">
+  <div class="cfg-box">
     <strong>Configuration Foundry</strong>
     <div class="cfg-row">
-      <input id="cfg-endpoint" placeholder="Endpoint (https://taugustin-1448-resource.services.ai.azure.com)" />
+      <input id="cfg-endpoint" placeholder="https://taugustin-1448-resource.services.ai.azure.com" />
     </div>
     <div class="cfg-row">
       <input id="cfg-apikey" placeholder="Clé API" type="password" />
-      <input id="cfg-agentid" placeholder="ID de l'agent (asst_...)" style="flex:1" />
+      <input id="cfg-agentid" placeholder="Nom de l'agent : Illuxi-Coach" />
       <button class="cfg-btn" onclick="saveConfig()">Sauvegarder</button>
     </div>
     <div id="cfg-status" style="margin-top:8px;font-size:13px"></div>
@@ -82,162 +78,118 @@
   <div id="voice-status">Cliquez pour parler</div>
   <div id="voice-transcript">La transcription apparaîtra ici...</div>
 </div>
-
 <script>
-const SK = 'illuxi_cfg_v2';
+const SK = 'illuxi_cfg_v3';
 let cfg = {};
-try { cfg = JSON.parse(localStorage.getItem(SK) || '{}'); } catch(e){}
-let threadId = null;
-let isListening = false;
-let recognition = null;
+try { cfg = JSON.parse(localStorage.getItem(SK)||'{}'); } catch(e){}
+let threadId = null, isListening = false, recognition = null;
+const PROXY = '/api/chat';
 
-function switchTab(tab) {
-  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', (tab==='chat'?0:1)===i));
-  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-  document.getElementById(tab+'-panel').classList.add('active');
+function switchTab(t) {
+  document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',(t==='chat'?0:1)===i));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById(t+'-panel').classList.add('active');
 }
-
 function saveConfig() {
-  cfg.endpoint = document.getElementById('cfg-endpoint').value.trim().replace(/\/$/, '');
+  cfg.endpoint = document.getElementById('cfg-endpoint').value.trim().replace(/\/$/,'');
   cfg.apikey   = document.getElementById('cfg-apikey').value.trim();
   cfg.agentid  = document.getElementById('cfg-agentid').value.trim();
   localStorage.setItem(SK, JSON.stringify(cfg));
-  document.getElementById('cfg-status').textContent = 'Sauvegardé. Testez le chat pour valider la connexion.';
-  document.getElementById('cfg-status').style.color = '#155724';
+  document.getElementById('cfg-status').textContent='Sauvegardé — testez le chat pour valider.';
+  document.getElementById('cfg-status').style.color='#155724';
+}
+if (cfg.endpoint) document.getElementById('cfg-endpoint').value=cfg.endpoint;
+if (cfg.agentid)  document.getElementById('cfg-agentid').value=cfg.agentid;
+
+function addMsg(text,cls) {
+  const d=document.createElement('div');
+  d.className='msg '+cls; d.textContent=text;
+  const b=document.getElementById('chat-messages');
+  b.appendChild(d); b.scrollTop=99999; return d;
 }
 
-if (cfg.endpoint) document.getElementById('cfg-endpoint').value = cfg.endpoint;
-if (cfg.agentid)  document.getElementById('cfg-agentid').value  = cfg.agentid;
-
-function addMsg(text, cls) {
-  const d = document.createElement('div');
-  d.className = 'msg ' + cls;
-  d.textContent = text;
-  const box = document.getElementById('chat-messages');
-  box.appendChild(d);
-  box.scrollTop = 99999;
-  return d;
+async function proxy(method, path, body) {
+  const r = await fetch(PROXY, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ endpoint:cfg.endpoint, apikey:cfg.apikey, method, path, body })
+  });
+  const text = await r.text();
+  if (!r.ok) throw new Error('HTTP '+r.status+': '+text);
+  return JSON.parse(text);
 }
 
 async function sendMessage() {
-  const inp = document.getElementById('chat-input');
-  const text = inp.value.trim();
-  if (!text) return;
-  inp.value = '';
-  document.getElementById('send-btn').disabled = true;
-  addMsg(text, 'user');
-  const t = addMsg('Illuxi-Coach réfléchit…', 'agent thinking');
-  try {
-    const reply = await callAgent(text);
-    t.remove();
-    addMsg(reply, 'agent');
-  } catch(e) {
-    t.remove();
-    addMsg('Erreur : ' + e.message, 'error');
-  }
-  document.getElementById('send-btn').disabled = false;
+  const inp=document.getElementById('chat-input');
+  const text=inp.value.trim(); if(!text) return;
+  inp.value=''; document.getElementById('send-btn').disabled=true;
+  addMsg(text,'user');
+  const t=addMsg('Illuxi-Coach réfléchit…','agent thinking');
+  try { const r=await callAgent(text); t.remove(); addMsg(r,'agent'); }
+  catch(e) { t.remove(); addMsg('Erreur : '+e.message,'error'); }
+  document.getElementById('send-btn').disabled=false;
 }
 
 async function callAgent(msg) {
-  if (!cfg.endpoint || !cfg.apikey || !cfg.agentid)
-    throw new Error('Configuration manquante — remplissez l\'onglet Voix');
+  if (!cfg.endpoint||!cfg.apikey||!cfg.agentid)
+    throw new Error('Configuration manquante — onglet Voix');
+  const ver='2025-05-15-preview';
 
-  const base = cfg.endpoint;
-  const ver  = '2025-05-15-preview';
-  const h    = { 'api-key': cfg.apikey, 'Content-Type': 'application/json' };
-
-  // Trouver l'ID réel de l'agent si on a un nom
-  let agentId = cfg.agentid;
+  let agentId=cfg.agentid;
   if (!agentId.startsWith('asst_')) {
-    const la = await fetch(`${base}/openai/assistants?api-version=${ver}&limit=20`, { headers: h });
-    if (!la.ok) throw new Error('Liste agents ' + la.status + ': ' + await la.text());
-    const agents = await la.json();
-    const found = (agents.data || []).find(a => a.name === agentId);
-    if (!found) throw new Error('Agent "' + agentId + '" non trouvé. Agents disponibles: ' + (agents.data||[]).map(a=>a.name).join(', '));
-    agentId = found.id;
-    cfg.agentid = agentId;
-    localStorage.setItem(SK, JSON.stringify(cfg));
+    const d=await proxy('GET',`/openai/assistants?api-version=${ver}&limit=20`);
+    const found=(d.data||[]).find(a=>a.name===agentId);
+    if (!found) throw new Error('Agent "'+agentId+'" non trouvé. Disponibles: '+(d.data||[]).map(a=>a.name).join(', '));
+    agentId=found.id; cfg.agentid=agentId; localStorage.setItem(SK,JSON.stringify(cfg));
   }
 
-  // Thread
   if (!threadId) {
-    const r = await fetch(`${base}/openai/threads?api-version=${ver}`, { method:'POST', headers:h, body:'{}' });
-    if (!r.ok) throw new Error('Thread ' + r.status + ': ' + await r.text());
-    threadId = (await r.json()).id;
+    const d=await proxy('POST',`/openai/threads?api-version=${ver}`,{});
+    threadId=d.id;
   }
 
-  // Message
-  const mr = await fetch(`${base}/openai/threads/${threadId}/messages?api-version=${ver}`, {
-    method: 'POST', headers: h, body: JSON.stringify({ role:'user', content: msg })
-  });
-  if (!mr.ok) throw new Error('Message ' + mr.status + ': ' + await mr.text());
+  await proxy('POST',`/openai/threads/${threadId}/messages?api-version=${ver}`,{role:'user',content:msg});
 
-  // Run
-  const rr = await fetch(`${base}/openai/threads/${threadId}/runs?api-version=${ver}`, {
-    method: 'POST', headers: h, body: JSON.stringify({ assistant_id: agentId })
-  });
-  if (!rr.ok) throw new Error('Run ' + rr.status + ': ' + await rr.text());
-  let run = await rr.json();
+  let run=await proxy('POST',`/openai/threads/${threadId}/runs?api-version=${ver}`,{assistant_id:agentId});
 
-  // Poll
-  for (let i = 0; i < 60 && (run.status==='queued'||run.status==='in_progress'); i++) {
-    await new Promise(r => setTimeout(r, 2000));
-    const p = await fetch(`${base}/openai/threads/${threadId}/runs/${run.id}?api-version=${ver}`, { headers:h });
-    run = await p.json();
+  for (let i=0;i<60&&(run.status==='queued'||run.status==='in_progress');i++) {
+    await new Promise(r=>setTimeout(r,2000));
+    run=await proxy('GET',`/openai/threads/${threadId}/runs/${run.id}?api-version=${ver}`);
   }
-  if (run.status !== 'completed') throw new Error('Statut: ' + run.status + (run.last_error ? ' — ' + run.last_error.message : ''));
+  if (run.status!=='completed') throw new Error('Statut: '+run.status+(run.last_error?' — '+run.last_error.message:''));
 
-  // Réponse
-  const ms = await fetch(`${base}/openai/threads/${threadId}/messages?api-version=${ver}&limit=1&order=desc`, { headers:h });
-  const data = await ms.json();
-  const content = data.data?.[0]?.content;
+  const data=await proxy('GET',`/openai/threads/${threadId}/messages?api-version=${ver}&limit=1&order=desc`);
+  const content=data.data?.[0]?.content;
   if (Array.isArray(content)) return content.filter(c=>c.type==='text').map(c=>c.text.value).join('\n');
   throw new Error('Contenu vide');
 }
 
-// VOICEBOT
-function toggleVoice() {
-  if (isListening) stopListening(); else startListening();
-}
+function toggleVoice() { if(isListening) stopListening(); else startListening(); }
 function startListening() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { document.getElementById('voice-status').textContent = 'Utilisez Chrome ou Edge'; return; }
-  recognition = new SR();
-  recognition.lang = 'fr-CA';
-  recognition.interimResults = false;
-  recognition.onresult = async (e) => {
-    const tx = e.results[0][0].transcript;
-    document.getElementById('voice-transcript').textContent = 'Vous : ' + tx;
-    setOrb('speaking');
-    document.getElementById('voice-status').textContent = 'Illuxi-Coach répond…';
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if (!SR) { document.getElementById('voice-status').textContent='Utilisez Chrome ou Edge'; return; }
+  recognition=new SR(); recognition.lang='fr-CA'; recognition.interimResults=false;
+  recognition.onresult=async(e)=>{
+    const tx=e.results[0][0].transcript;
+    document.getElementById('voice-transcript').textContent='Vous : '+tx;
+    setOrb('speaking'); document.getElementById('voice-status').textContent='Illuxi-Coach répond…';
     try {
-      const reply = await callAgent(tx);
-      document.getElementById('voice-transcript').textContent = 'Vous : ' + tx + '\n\nIlluxi-Coach : ' + reply;
-      speak(reply);
-    } catch(e) {
-      document.getElementById('voice-status').textContent = 'Erreur : ' + e.message;
-      setOrb('');
-    }
+      const r=await callAgent(tx);
+      document.getElementById('voice-transcript').textContent='Vous : '+tx+'\n\nIlluxi-Coach : '+r;
+      speak(r);
+    } catch(e) { document.getElementById('voice-status').textContent='Erreur : '+e.message; setOrb(''); }
   };
-  recognition.onerror = () => { setOrb(''); document.getElementById('voice-status').textContent = 'Erreur micro'; };
-  recognition.onend = () => { isListening = false; };
-  recognition.start();
-  isListening = true;
-  setOrb('listening');
-  document.getElementById('voice-status').textContent = 'Écoutez… parlez maintenant';
+  recognition.onerror=()=>{ setOrb(''); document.getElementById('voice-status').textContent='Erreur micro'; };
+  recognition.onend=()=>{ isListening=false; };
+  recognition.start(); isListening=true; setOrb('listening');
+  document.getElementById('voice-status').textContent='Écoutez… parlez maintenant';
 }
-function stopListening() {
-  if (recognition) recognition.stop();
-  isListening = false; setOrb('');
-  document.getElementById('voice-status').textContent = 'Cliquez pour parler';
-}
-function setOrb(s) { document.getElementById('voice-orb').className = 'voice-orb' + (s?' '+s:''); }
+function stopListening() { if(recognition) recognition.stop(); isListening=false; setOrb(''); document.getElementById('voice-status').textContent='Cliquez pour parler'; }
+function setOrb(s) { document.getElementById('voice-orb').className='voice-orb'+(s?' '+s:''); }
 function speak(text) {
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'fr-CA';
-  const v = speechSynthesis.getVoices().find(v => v.lang.startsWith('fr'));
-  if (v) u.voice = v;
-  u.onend = () => { setOrb(''); document.getElementById('voice-status').textContent = 'Cliquez pour parler'; };
+  const u=new SpeechSynthesisUtterance(text); u.lang='fr-CA';
+  const v=speechSynthesis.getVoices().find(v=>v.lang.startsWith('fr')); if(v) u.voice=v;
+  u.onend=()=>{ setOrb(''); document.getElementById('voice-status').textContent='Cliquez pour parler'; };
   speechSynthesis.speak(u);
 }
 </script>
