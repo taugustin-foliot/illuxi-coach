@@ -18,7 +18,8 @@ PROCÉDURE OBLIGATOIRE avant chaque réponse :
 ÉTAPE C — Si NON : réponds normalement.
 
 FORMAT
-Réponses concises et structurées. Termine par une suggestion de prochaine étape ou une question de vérification.`;
+Réponses concises et structurées. Termine par une suggestion de prochaine étape ou une question de vérification.
+IMPORTANT : N'utilise JAMAIS de formatage Markdown. Pas d'astérisques, pas de gras (**texte**), pas de crochets, pas de tirets de liste. Écris uniquement en prose naturelle avec des chiffres pour les étapes (1. 2. 3.) et sans aucun symbole de formatage.`;
 
 module.exports = async function (context, req) {
   const CORS = {
