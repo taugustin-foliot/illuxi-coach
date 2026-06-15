@@ -38,10 +38,19 @@ module.exports = async function (context, req) {
     return;
   }
 
-  const { endpoint, apikey, message, history } = req.body || {};
+  // Lire depuis les variables d'environnement Azure
+  const endpoint = process.env.FOUNDRY_ENDPOINT;
+  const apikey   = process.env.FOUNDRY_APIKEY;
 
-  if (!endpoint || !apikey || !message) {
-    context.res = { status: 400, headers: CORS, body: JSON.stringify({ error: 'Paramètres manquants' }) };
+  if (!endpoint || !apikey) {
+    context.res = { status: 500, headers: CORS, body: JSON.stringify({ error: 'Variables d\'environnement manquantes sur le serveur' }) };
+    return;
+  }
+
+  const { message, history } = req.body || {};
+
+  if (!message) {
+    context.res = { status: 400, headers: CORS, body: JSON.stringify({ error: 'Message manquant' }) };
     return;
   }
 
