@@ -3,7 +3,7 @@ const https = require('https');
 module.exports = async function (context, req) {
   const CORS = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS, GET',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type'
   };
 
@@ -12,36 +12,45 @@ module.exports = async function (context, req) {
     return;
   }
 
-  const { endpoint, apikey, method, path, body } = req.body || {};
-  if (!endpoint || !apikey || !path) {
+  const { endpoint, apikey, agentname, agentversion, message } = req.body || {};
+
+  if (!endpoint || !apikey || !agentname || !message) {
     context.res = { status: 400, headers: CORS, body: JSON.stringify({ error: 'Paramètres manquants' }) };
     return;
   }
 
   try {
-    const url = new URL(endpoint.replace(/\/$/, '') + path);
-    const data = body ? JSON.stringify(body) : '';
-    const httpMethod = method || 'GET';
+    const base = endpoint.replace(/\/$/, '');
+    const url = new URL(base + '/responses?api-version=2025-05-15-preview');
+    const payload = JSON.stringify({
+      input: [{ role: 'user', content: message }],
+      extra_body: {
+        agent_reference: {
+          name: agentname,
+          version: agentversion || '0',
+          type: 'agent_reference'
+        }
+      }
+    });
 
     const result = await new Promise((resolve, reject) => {
       const options = {
         hostname: url.hostname,
         path: url.pathname + url.search,
-        method: httpMethod,
+        method: 'POST',
         headers: {
           'api-key': apikey,
           'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(data)
+          'Content-Length': Buffer.byteLength(payload)
         }
       };
-
       const r = https.request(options, res => {
         let chunks = '';
         res.on('data', d => chunks += d);
         res.on('end', () => resolve({ status: res.statusCode, body: chunks }));
       });
       r.on('error', reject);
-      if (data) r.write(data);
+      r.write(payload);
       r.end();
     });
 
