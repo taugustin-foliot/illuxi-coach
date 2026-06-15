@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Illuxi-Coach</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; height: 100vh; display: flex; flex-direction: column; }
+  header { background: #1a1a2e; color: white; padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 20px; font-weight: 600; }
+  header span { font-size: 13px; opacity: 0.7; }
+  .tabs { display: flex; background: white; border-bottom: 1px solid #e0e0e0; }
+  .tab { padding: 14px 28px; cursor: pointer; font-size: 15px; color: #666; border-bottom: 3px solid transparent; transition: all 0.2s; }
+  .tab.active { color: #1a1a2e; border-bottom-color: #7c6af7; font-weight: 600; }
+  .tab:hover:not(.active) { background: #f9f9f9; }
+  .panel { display: none; flex: 1; flex-direction: column; }
+  .panel.active { display: flex; }
+
+  /* CHAT */
+  #chat-messages { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+  .msg { max-width: 75%; padding: 12px 16px; border-radius: 12px; font-size: 15px; line-height: 1.5; }
+  .msg.user { background: #7c6af7; color: white; align-self: flex-end; border-radius: 12px 12px 2px 12px; }
+  .msg.agent { background: white; color: #1a1a2e; align-self: flex-start; border-radius: 12px 12px 12px 2px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  .msg.agent .source { font-size: 12px; color: #888; margin-top: 6px; }
+  .msg.thinking { opacity: 0.5; font-style: italic; }
+  #chat-input-area { padding: 16px 24px; background: white; border-top: 1px solid #e0e0e0; display: flex; gap: 10px; }
+  #chat-input { flex: 1; padding: 12px 16px; border: 1px solid #ddd; border-radius: 24px; font-size: 15px; outline: none; }
+  #chat-input:focus { border-color: #7c6af7; }
+  #send-btn { background: #7c6af7; color: white; border: none; border-radius: 24px; padding: 12px 24px; font-size: 15px; cursor: pointer; font-weight: 600; }
+  #send-btn:hover { background: #6a5ae0; }
+  #send-btn:disabled { background: #ccc; cursor: not-allowed; }
+
+  /* VOICE */
+  #voice-panel { align-items: center; justify-content: center; gap: 24px; background: #f5f5f5; }
+  .voice-orb { width: 160px; height: 160px; border-radius: 50%; background: #1a1a2e; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.3s; position: relative; }
+  .voice-orb:hover { transform: scale(1.05); }
+  .voice-orb.listening { background: #7c6af7; animation: pulse 1.5s infinite; }
+  .voice-orb.speaking { background: #10b981; }
+  .voice-orb svg { width: 64px; height: 64px; fill: white; }
+  @keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(124,106,247,0.4)} 50%{box-shadow:0 0 0 20px rgba(124,106,247,0)} }
+  #voice-status { font-size: 18px; color: #444; font-weight: 500; }
+  #voice-transcript { background: white; border-radius: 12px; padding: 16px 20px; max-width: 600px; width: 90%; font-size: 15px; line-height: 1.6; color: #333; box-shadow: 0 1px 3px rgba(0,0,0,0.1); min-height: 80px; }
+  #voice-config { background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; padding: 16px; max-width: 600px; width: 90%; font-size: 14px; color: #664d03; }
+  #voice-config a { color: #7c6af7; }
+</style>
+</head>
+<body>
+
+<header>
+  <svg width="32" height="32" viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="16" fill="#7c6af7"/><path d="M10 22 Q16 10 22 22" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round"/><circle cx="16" cy="13" r="3" fill="white"/></svg>
+  <div><h1>Illuxi-Coach</h1><span>Mentor virtuel des formations</span></div>
+</header>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('chat')">Chat</div>
+  <div class="tab" onclick="switchTab('voice')">Voix</div>
+</div>
+
+<!-- CHAT PANEL -->
+<div class="panel active" id="chat-panel">
+  <div id="chat-messages">
+    <div class="msg agent">
+      Bonjour ! Je suis Illuxi-Coach, votre mentor pour les formations Illuxi. Comment puis-je vous aider aujourd'hui ?
+    </div>
+  </div>
+  <div id="chat-input-area">
+    <input id="chat-input" type="text" placeholder="Posez votre question sur la formation..." onkeydown="if(event.key==='Enter')sendMessage()"/>
+    <button id="send-btn" onclick="sendMessage()">Envoyer</button>
+  </div>
+</div>
+
+<!-- VOICE PANEL -->
+<div class="panel" id="voice-panel">
+  <div id="voice-config">
+    <strong>Configuration requise :</strong> pour activer le voicebot, entrez votre
+    <a href="#" onclick="configureVoice()">clé API et l'identifiant de l'agent Foundry</a>
+    dans les paramètres ci-dessous.<br><br>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
+      <input id="cfg-endpoint" placeholder="Endpoint Foundry (https://...)" style="flex:2;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:13px"/>
+      <input id="cfg-apikey" placeholder="Clé API Foundry" type="password" style="flex:2;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:13px"/>
+      <input id="cfg-agentid" placeholder="Agent ID" style="flex:1;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:13px"/>
+      <button onclick="saveConfig()" style="padding:8px 16px;background:#7c6af7;color:white;border:none;border-radius:6px;cursor:pointer">Sauvegarder</button>
+    </div>
+  </div>
+  <div class="voice-orb" id="voice-orb" onclick="toggleVoice()">
+    <svg id="mic-icon" viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3zm-1 3a1 1 0 0 1 2 0v8a1 1 0 0 1-2 0V4zm-5 7a1 1 0 0 1 1 1 5 5 0 0 0 10 0 1 1 0 0 1 2 0 7 7 0 0 1-6 6.92V21h2a1 1 0 0 1 0 2H9a1 1 0 0 1 0-2h2v-2.08A7 7 0 0 1 5 12a1 1 0 0 1 1-1z"/></svg>
+  </div>
+  <div id="voice-status">Cliquez pour parler</div>
+  <div id="voice-transcript">La transcription de la conversation apparaîtra ici...</div>
+</div>
+
+<script>
+const STORAGE_KEY = 'illuxi_coach_config';
+let cfg = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+let threadId = null;
+let isListening = false;
+let recognition = null;
+
+// ── TABS ──────────────────────────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', (tab==='chat'?0:1)===i));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById(tab+'-panel').classList.add('active');
+}
+
+// ── CONFIG ────────────────────────────────────────────────────────
+function saveConfig() {
+  cfg.endpoint = document.getElementById('cfg-endpoint').value.trim();
+  cfg.apikey   = document.getElementById('cfg-apikey').value.trim();
+  cfg.agentid  = document.getElementById('cfg-agentid').value.trim();
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+  document.getElementById('voice-status').textContent = 'Configuration sauvegardée — cliquez pour parler';
+}
+
+// Pré-remplir si déjà sauvegardé
+if (cfg.endpoint) document.getElementById('cfg-endpoint').value = cfg.endpoint;
+if (cfg.agentid)  document.getElementById('cfg-agentid').value  = cfg.agentid;
+
+// ── CHAT ──────────────────────────────────────────────────────────
+function addMessage(text, role) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.textContent = text;
+  document.getElementById('chat-messages').appendChild(div);
+  document.getElementById('chat-messages').scrollTop = 99999;
+  return div;
+}
+
+async function sendMessage() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  document.getElementById('send-btn').disabled = true;
+
+  addMessage(text, 'user');
+  const thinking = addMessage('Illuxi-Coach réfléchit…', 'agent thinking');
+
+  try {
+    const reply = await callFoundryAgent(text);
+    thinking.remove();
+    addMessage(reply, 'agent');
+  } catch(e) {
+    thinking.remove();
+    addMessage('Erreur de connexion à l\'agent. Vérifiez la configuration dans l\'onglet Voix.', 'agent');
+  }
+  document.getElementById('send-btn').disabled = false;
+}
+
+async function callFoundryAgent(userMessage) {
+  if (!cfg.endpoint || !cfg.apikey || !cfg.agentid) {
+    throw new Error('Configuration manquante');
+  }
+
+  // Créer un thread si nécessaire
+  if (!threadId) {
+    const r = await fetch(`${cfg.endpoint}/threads?api-version=2025-01-01-preview`, {
+      method: 'POST',
+      headers: { 'api-key': cfg.apikey, 'Content-Type': 'application/json' },
+      body: '{}'
+    });
+    const d = await r.json();
+    threadId = d.id;
+  }
+
+  // Envoyer le message
+  await fetch(`${cfg.endpoint}/threads/${threadId}/messages?api-version=2025-01-01-preview`, {
+    method: 'POST',
+    headers: { 'api-key': cfg.apikey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role: 'user', content: userMessage })
+  });
+
+  // Lancer le run
+  const runRes = await fetch(`${cfg.endpoint}/threads/${threadId}/runs?api-version=2025-01-01-preview`, {
+    method: 'POST',
+    headers: { 'api-key': cfg.apikey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ assistant_id: cfg.agentid })
+  });
+  let run = await runRes.json();
+
+  // Attendre la complétion (polling)
+  while (run.status === 'queued' || run.status === 'in_progress') {
+    await new Promise(r => setTimeout(r, 1500));
+    const r2 = await fetch(`${cfg.endpoint}/threads/${threadId}/runs/${run.id}?api-version=2025-01-01-preview`, {
+      headers: { 'api-key': cfg.apikey }
+    });
+    run = await r2.json();
+  }
+
+  // Récupérer la dernière réponse
+  const msgs = await fetch(`${cfg.endpoint}/threads/${threadId}/messages?api-version=2025-01-01-preview&limit=1&order=desc`, {
+    headers: { 'api-key': cfg.apikey }
+  });
+  const data = await msgs.json();
+  const content = data.data[0]?.content;
+  if (Array.isArray(content)) {
+    return content.filter(c => c.type === 'text').map(c => c.text.value).join('\n');
+  }
+  return 'Aucune réponse reçue.';
+}
+
+// ── VOICEBOT (Web Speech API) ─────────────────────────────────────
+function toggleVoice() {
+  if (isListening) stopListening();
+  else startListening();
+}
+
+function startListening() {
+  if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+    document.getElementById('voice-status').textContent = 'Micro non supporté — utilisez Chrome ou Edge';
+    return;
+  }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  recognition = new SR();
+  recognition.lang = 'fr-CA';
+  recognition.interimResults = false;
+  recognition.onresult = async (e) => {
+    const transcript = e.results[0][0].transcript;
+    document.getElementById('voice-transcript').textContent = 'Vous : ' + transcript;
+    document.getElementById('voice-status').textContent = 'Illuxi-Coach répond…';
+    setOrbState('speaking');
+    try {
+      const reply = await callFoundryAgent(transcript);
+      document.getElementById('voice-transcript').textContent = 'Vous : ' + transcript + '\n\nIlluxi-Coach : ' + reply;
+      speak(reply);
+    } catch(e) {
+      document.getElementById('voice-status').textContent = 'Erreur — vérifiez la configuration';
+      setOrbState('');
+    }
+  };
+  recognition.onerror = () => { setOrbState(''); document.getElementById('voice-status').textContent = 'Erreur micro — réessayez'; };
+  recognition.onend = () => { isListening = false; };
+  recognition.start();
+  isListening = true;
+  setOrbState('listening');
+  document.getElementById('voice-status').textContent = 'Écoutez… parlez maintenant';
+}
+
+function stopListening() {
+  if (recognition) recognition.stop();
+  isListening = false;
+  setOrbState('');
+  document.getElementById('voice-status').textContent = 'Cliquez pour parler';
+}
+
+function setOrbState(state) {
+  const orb = document.getElementById('voice-orb');
+  orb.className = 'voice-orb' + (state ? ' '+state : '');
+}
+
+function speak(text) {
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang = 'fr-CA';
+  const voices = speechSynthesis.getVoices();
+  const frVoice = voices.find(v => v.lang.startsWith('fr'));
+  if (frVoice) utter.voice = frVoice;
+  utter.onend = () => { setOrbState(''); document.getElementById('voice-status').textContent = 'Cliquez pour parler'; };
+  speechSynthesis.speak(utter);
+}
+</script>
+</body>
+</html>
