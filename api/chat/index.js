@@ -1,14 +1,16 @@
 const https = require('https');
+const http = require('http');
 
 async function getAccessToken() {
   return new Promise((resolve, reject) => {
     const options = {
       hostname: '169.254.169.254',
+      port: 80,
       path: '/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fcognitiveservices.azure.com%2F',
       method: 'GET',
       headers: { 'Metadata': 'true' }
     };
-    const r = https.request(options, res => {
+    const r = http.request(options, res => {
       let data = '';
       res.on('data', d => data += d);
       res.on('end', () => {
@@ -82,7 +84,6 @@ module.exports = async function (context, req) {
   try {
     const token = await getAccessToken();
     const result = await callFoundry(token, endpoint, agentname, message);
-
     context.res = {
       status: result.status,
       headers: { ...CORS, 'Content-Type': 'application/json' },
