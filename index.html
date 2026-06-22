@@ -60,7 +60,10 @@
   <div id="chat-messages">
     <div class="msg agent">Bonjour ! Je suis Illuxi-Coach, votre mentor pour les formations Illuxi. Comment puis-je vous aider aujourd'hui ?</div>
   </div>
-  <button id="quiz-btn" onclick="startQuiz()">Me tester sur la formation</button>
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:0 24px 4px;">
+    <button id="quiz-btn" onclick="startQuiz()">Me tester sur la formation</button>
+    <button onclick="if(confirm('Réinitialiser la mémoire de quiz ?')){resetMemory();alert('Mémoire réinitialisée.');}" style="background:none;border:none;font-size:12px;color:#aaa;cursor:pointer;">Réinitialiser le quiz</button>
+  </div>
   <div id="chat-input-area">
     <input id="chat-input" type="text" placeholder="Posez votre question sur la formation..." onkeydown="if(event.key==='Enter')sendMessage()"/>
     <button id="send-btn" onclick="sendMessage()">Envoyer</button>
@@ -82,22 +85,67 @@
 let history = [];
 let isListening = false, recognition = null;
 
+// --- MÉMOIRE ENTRE SESSIONS ---
+const MEM_KEY = 'illuxi_memory';
+function loadMemory() {
+  try { return JSON.parse(localStorage.getItem(MEM_KEY) || '{}'); } catch(e) { return {}; }
+}
+function saveMemory(mem) {
+  try { localStorage.setItem(MEM_KEY, JSON.stringify(mem)); } catch(e) {}
+}
+function getAskedQuestions() {
+  return loadMemory().askedQuestions || [];
+}
+function markQuestionAsked(q) {
+  const mem = loadMemory();
+  if (!mem.askedQuestions) mem.askedQuestions = [];
+  if (!mem.askedQuestions.includes(q)) mem.askedQuestions.push(q);
+  saveMemory(mem);
+}
+function getQuizScore() {
+  return loadMemory().quizScore || { correct: 0, total: 0 };
+}
+function updateQuizScore(correct) {
+  const mem = loadMemory();
+  if (!mem.quizScore) mem.quizScore = { correct: 0, total: 0 };
+  mem.quizScore.total++;
+  if (correct) mem.quizScore.correct++;
+  saveMemory(mem);
+}
+function resetMemory() {
+  localStorage.removeItem(MEM_KEY);
+}
+
 function startQuiz() {
   const inp = document.getElementById('chat-input');
   inp.value = '';
   document.getElementById('send-btn').disabled = true;
   addMsg('Je veux être testé sur la formation.', 'user');
   const t = addMsg('Illuxi-Coach prépare une question…', 'agent thinking');
+  const asked = getAskedQuestions();
+  const score = getQuizScore();
+  const memMsg = asked.length > 0
+    ? 'ILLUXI_QUIZ_START. Questions déjà posées à cet apprenant (ne pas reposer) : ' + asked.join(' | ') + '. Score actuel : ' + score.correct + '/' + score.total + '.'
+    : 'ILLUXI_QUIZ_START';
   fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message: 'ILLUXI_QUIZ_START', history })
+    body: JSON.stringify({ message: memMsg, history })
   }).then(r => r.json()).then(data => {
     t.remove();
     const reply = data.choices?.[0]?.message?.content || 'Erreur';
     addMsg(reply, 'agent');
-    history.push({ role: 'user', content: 'ILLUXI_QUIZ_START' });
+    history.push({ role: 'user', content: memMsg });
     history.push({ role: 'assistant', content: reply });
+    // Détecter quelle question a été posée et la mémoriser
+    const questions = [
+      'Quel menu utilise-t-on pour accéder à la zone de rapports',
+      'Quelle est la fonction principale de l'élément Sélection',
+      'Comment dupliquer un rapport standard',
+      'Quelle option permet de sauvegarder une vue personnalisée',
+      'Comment partager un rapport avec un collègue'
+    ];
+    questions.forEach(q => { if (reply.toLowerCase().includes(q.toLowerCase().substring(0, 20))) markQuestionAsked(q); });
   }).catch(e => { t.remove(); addMsg('Erreur : ' + e.message, 'error'); })
   .finally(() => { document.getElementById('send-btn').disabled = false; });
 }
