@@ -236,8 +236,15 @@ function speak(text) {
   u.lang = 'fr-CA'; u.rate = 0.95;
   const trySpeak = () => {
     const voices = speechSynthesis.getVoices();
-    const v = voices.find(v=>v.lang.startsWith('fr-CA')) || voices.find(v=>v.lang.startsWith('fr'));
+    // Priorité : voix Neural fr-CA → voix fr-CA → voix Neural fr → voix fr
+    const v = voices.find(v => v.lang.startsWith('fr-CA') && v.name.toLowerCase().includes('natural'))
+           || voices.find(v => v.lang.startsWith('fr-CA') && v.name.toLowerCase().includes('neural'))
+           || voices.find(v => v.lang.startsWith('fr-CA') && !v.name.toLowerCase().includes('compact'))
+           || voices.find(v => v.lang.startsWith('fr') && v.name.toLowerCase().includes('natural'))
+           || voices.find(v => v.lang.startsWith('fr') && v.name.toLowerCase().includes('neural'))
+           || voices.find(v => v.lang.startsWith('fr'));
     if (v) u.voice = v;
+    console.log('Voix sélectionnée :', v ? v.name + ' (' + v.lang + ')' : 'défaut navigateur');
     document.getElementById('stop-btn').style.display = 'block';
     document.getElementById('voice-status').textContent = 'Illuxi-Coach parle…';
     showSubtitles(text);
