@@ -41,6 +41,8 @@
   #stop-btn:hover { background: #c53030; }
   .transcript-toggle { background: none; border: 1px solid #ccc; border-radius: 20px; padding: 8px 18px; font-size: 14px; color: #666; cursor: pointer; display: none; }
   .transcript-toggle:hover { background: #f0f0f0; }
+  #subtitles-box { max-width: 600px; width: 90%; min-height: 64px; display: none; text-align: center; }
+  #subtitles-text { font-size: 18px; line-height: 1.6; color: #1a1a2e; font-weight: 500; background: rgba(255,255,255,0.92); border-radius: 12px; padding: 14px 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.12); display: inline-block; max-width: 100%; }
   #voice-transcript { background: white; border-radius: 12px; padding: 16px 20px; max-width: 600px; width: 90%; font-size: 15px; line-height: 1.6; color: #333; box-shadow: 0 1px 3px rgba(0,0,0,0.1); white-space: pre-wrap; display: none; }
 </style>
 </head>
@@ -70,6 +72,7 @@
   </div>
   <div id="voice-status">Cliquez pour parler</div>
   <button id="stop-btn" onclick="stopSpeech()">Arrêter la réponse</button>
+  <div id="subtitles-box"><span id="subtitles-text"></span></div>
   <button class="transcript-toggle" id="transcript-toggle" onclick="toggleTranscript()">Afficher la transcription</button>
   <div id="voice-transcript"></div>
 </div>
@@ -190,13 +193,45 @@ function stopListening() {
   document.getElementById('voice-status').textContent = 'Cliquez pour parler';
 }
 function setOrb(s) { document.getElementById('voice-orb').className = 'voice-orb' + (s?' '+s:''); }
+let subtitleInterval = null;
+
 function stopSpeech() {
-  speechSynthesis.cancel(); setOrb('');
+  speechSynthesis.cancel();
+  setOrb('');
+  clearSubtitles();
   document.getElementById('stop-btn').style.display = 'none';
   document.getElementById('voice-status').textContent = 'Cliquez pour parler';
 }
+
+function clearSubtitles() {
+  if (subtitleInterval) { clearInterval(subtitleInterval); subtitleInterval = null; }
+  const box = document.getElementById('subtitles-box');
+  box.style.display = 'none';
+  document.getElementById('subtitles-text').textContent = '';
+}
+
+function showSubtitles(text) {
+  const box = document.getElementById('subtitles-box');
+  const span = document.getElementById('subtitles-text');
+  const words = text.split(' ');
+  let i = 0;
+  // Estimer la durée par mot selon le débit de la voix (rate 0.95 ≈ 150 mots/min)
+  const msPerWord = Math.max(280, Math.round(60000 / (150 * 0.95)));
+  box.style.display = 'block';
+  span.textContent = '';
+  // Afficher 6 mots à la fois en défilement
+  const CHUNK = 6;
+  subtitleInterval = setInterval(() => {
+    if (i >= words.length) { clearInterval(subtitleInterval); subtitleInterval = null; return; }
+    const chunk = words.slice(i, i + CHUNK).join(' ');
+    span.textContent = chunk;
+    i += CHUNK;
+  }, msPerWord * CHUNK);
+}
+
 function speak(text) {
   speechSynthesis.cancel();
+  clearSubtitles();
   const u = new SpeechSynthesisUtterance(text);
   u.lang = 'fr-CA'; u.rate = 0.95;
   const trySpeak = () => {
@@ -205,8 +240,19 @@ function speak(text) {
     if (v) u.voice = v;
     document.getElementById('stop-btn').style.display = 'block';
     document.getElementById('voice-status').textContent = 'Illuxi-Coach parle…';
-    u.onend = () => { setOrb(''); document.getElementById('stop-btn').style.display = 'none'; document.getElementById('voice-status').textContent = 'Cliquez pour parler'; };
-    u.onerror = () => { setOrb(''); document.getElementById('stop-btn').style.display = 'none'; document.getElementById('voice-status').textContent = 'Cliquez pour parler'; };
+    showSubtitles(text);
+    u.onend = () => {
+      setOrb('');
+      clearSubtitles();
+      document.getElementById('stop-btn').style.display = 'none';
+      document.getElementById('voice-status').textContent = 'Cliquez pour parler';
+    };
+    u.onerror = () => {
+      setOrb('');
+      clearSubtitles();
+      document.getElementById('stop-btn').style.display = 'none';
+      document.getElementById('voice-status').textContent = 'Cliquez pour parler';
+    };
     speechSynthesis.speak(u);
   };
   if (speechSynthesis.getVoices().length === 0) { speechSynthesis.onvoiceschanged = trySpeak; } else { trySpeak(); }
