@@ -142,7 +142,7 @@ function buildQuizMessage() {
   return 'ILLUXI_QUIZ_START. Questions deja posees (ne pas reposer, numeros) : ' + asked.join(', ');
 }
 
-var history = [];
+var chatHistory = [];
 var isListening = false;
 var recognition = null;
 var subtitleInterval = null;
@@ -177,7 +177,7 @@ function callApi(message) {
   return fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message: message, history: history })
+    body: JSON.stringify({ message: message, history: chatHistory })
   }).then(function(r) {
     return r.text().then(function(text) {
       var data;
@@ -203,9 +203,9 @@ function sendMessage() {
     var reply = cleanReply(rawReply);
     t.remove();
     addMsg(reply, 'agent');
-    history.push({ role: 'user', content: text });
-    history.push({ role: 'assistant', content: reply });
-    if (history.length > 20) history = history.slice(-20);
+    chatHistory.push({ role: 'user', content: text });
+    chatHistory.push({ role: 'assistant', content: reply });
+    if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
   }).catch(function(e) {
     t.remove();
     addMsg('Erreur : ' + e.message, 'error');
@@ -224,8 +224,8 @@ function startQuiz() {
     var reply = cleanReply(rawReply);
     t.remove();
     addMsg(reply, 'agent');
-    history.push({ role: 'user', content: msg });
-    history.push({ role: 'assistant', content: reply });
+    chatHistory.push({ role: 'user', content: msg });
+    chatHistory.push({ role: 'assistant', content: reply });
   }).catch(function(e) {
     t.remove();
     addMsg('Erreur : ' + e.message, 'error');
@@ -241,8 +241,8 @@ function startVoiceQuiz() {
   callApi(msg).then(function(rawReply) {
     detectAndMarkQuestion(rawReply);
     var reply = cleanReply(rawReply);
-    history.push({ role: 'user', content: msg });
-    history.push({ role: 'assistant', content: reply });
+    chatHistory.push({ role: 'user', content: msg });
+    chatHistory.push({ role: 'assistant', content: reply });
     document.getElementById('voice-transcript').textContent = 'Illuxi-Coach : ' + reply;
     document.getElementById('transcript-toggle').style.display = 'block';
     speak(reply);
@@ -278,8 +278,8 @@ function startListening() {
     callApi(tx).then(function(rawReply) {
       detectAndMarkQuestion(rawReply);
       var reply = cleanReply(rawReply);
-      history.push({ role: 'user', content: tx });
-      history.push({ role: 'assistant', content: reply });
+      chatHistory.push({ role: 'user', content: tx });
+      chatHistory.push({ role: 'assistant', content: reply });
       document.getElementById('voice-transcript').textContent = 'Vous : ' + tx + '\n\nIlluxi-Coach : ' + reply;
       document.getElementById('transcript-toggle').style.display = 'block';
       speak(reply);
