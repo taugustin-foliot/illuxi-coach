@@ -152,9 +152,31 @@ function buildQuizMessage() {
     : 'ILLUXI_QUIZ_START';
 }
 
+const QUIZ_QUESTIONS = [
+  '',
+  'Quel menu utilise-t-on pour accéder à la zone de rapports ?',
+  'Quelle est la fonction principale de l'élément Sélection dans un rapport C4C ?',
+  'Comment dupliquer un rapport standard pour le personnaliser ?',
+  'Quelle option permet de sauvegarder une vue personnalisée ?',
+  'Comment partager un rapport avec un collègue ?',
+  'Quel style de leadership laisse les membres de l'équipe prendre leurs propres décisions sans intervention ?',
+  'Dans quel style de leadership le gestionnaire prend-il seul toutes les décisions ?',
+  'Qu'est-ce qui distingue le leadership démocratique des autres styles ?'
+];
+
 function detectAndMarkQuestion(reply) {
-  const questions=['Quel menu utilise-t-on pour accéder','Quelle est la fonction principale de l\'élément Sélection','Comment dupliquer un rapport standard','Quelle option permet de sauvegarder','Comment partager un rapport'];
-  questions.forEach(q=>{ if(reply.toLowerCase().includes(q.toLowerCase().substring(0,25))) markQuestionAsked(q); });
+  const m = reply.match(/\[QUIZ_Q:(\d+)\]/);
+  if (m) {
+    const num = parseInt(m[1]);
+    if (num >= 1 && num <= 8 && QUIZ_QUESTIONS[num]) {
+      markQuestionAsked(QUIZ_QUESTIONS[num]);
+    }
+  }
+}
+
+function cleanReply(reply) {
+  // Retirer le code [QUIZ_Q:X] de la réponse affichée
+  return reply.replace(/\n?\[QUIZ_Q:\d+\]/g, '').trim();
 }
 
 function startQuiz() {
@@ -165,10 +187,11 @@ function startQuiz() {
   fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg,history})})
     .then(r=>r.json()).then(data=>{
       t.remove();
-      const reply=data.choices?.[0]?.message?.content||'Erreur';
+      const rawReply=data.choices?.[0]?.message?.content||'Erreur';
+      detectAndMarkQuestion(rawReply);
+      const reply=cleanReply(rawReply);
       addMsg(reply,'agent');
       history.push({role:'user',content:msg}); history.push({role:'assistant',content:reply});
-      detectAndMarkQuestion(reply);
     }).catch(e=>{t.remove();addMsg('Erreur : '+e.message,'error');})
     .finally(()=>{document.getElementById('send-btn').disabled=false;});
 }
@@ -179,9 +202,10 @@ function startVoiceQuiz() {
   const msg=buildQuizMessage();
   fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg,history})})
     .then(r=>r.json()).then(data=>{
-      const reply=data.choices?.[0]?.message?.content||'Erreur';
+      const rawReply=data.choices?.[0]?.message?.content||'Erreur';
+      detectAndMarkQuestion(rawReply);
+      const reply=cleanReply(rawReply);
       history.push({role:'user',content:msg}); history.push({role:'assistant',content:reply});
-      detectAndMarkQuestion(reply);
       document.getElementById('voice-transcript').textContent='Illuxi-Coach : '+reply;
       document.getElementById('transcript-toggle').style.display='block';
       speak(reply);
